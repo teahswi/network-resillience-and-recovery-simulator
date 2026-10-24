@@ -6,11 +6,18 @@ Each function returns a :class:`netrescue.core.graph.Graph` instance.
 from __future__ import annotations
 
 import random
-from typing import Tuple
+from typing import Iterable, Mapping, Sequence
 
 from .graph import Graph
 
-def random_graph(num_nodes: int, edge_prob: float = 0.2, seed: int | None = None) -> Graph:
+def random_graph(
+    num_nodes: int,
+    edge_prob: float | None = 0.2,
+    seed: int | None = None,
+    *,
+    avg_degree: float | None = None,
+    weighted: bool = True,
+) -> Graph:
     """Generate a connected random undirected weighted graph.
 
     Parameters
@@ -35,6 +42,12 @@ def random_graph(num_nodes: int, edge_prob: float = 0.2, seed: int | None = None
     """
     if num_nodes <= 0:
         raise ValueError("num_nodes must be positive")
+    if avg_degree is not None:
+        if avg_degree < 0:
+            raise ValueError("avg_degree must be non-negative")
+        edge_prob = min(1.0, avg_degree / max(num_nodes - 1, 1))
+    if edge_prob is None or not 0 <= edge_prob <= 1:
+        raise ValueError("edge_prob must be between 0 and 1")
     rnd = random.Random(seed)
     g = Graph()
     # Add nodes
@@ -46,14 +59,36 @@ def random_graph(num_nodes: int, edge_prob: float = 0.2, seed: int | None = None
     for i in range(1, len(nodes)):
         u = nodes[i]
         v = rnd.choice(nodes[:i])
-        w = rnd.randint(1, 10)
+        w = rnd.randint(1, 10) if weighted else 1
         g.add_edge(u, v, w)
     # Possibly add extra edges
     for i in range(num_nodes):
         for j in range(i + 1, num_nodes):
             if rnd.random() < edge_prob and not g.has_edge(f"R{i}", f"R{j}"):
-                w = rnd.randint(1, 10)
+                w = rnd.randint(1, 10) if weighted else 1
                 g.add_edge(f"R{i}", f"R{j}", w)
+    return g
+
+def custom_graph(
+    nodes: Iterable[str],
+    edges: Iterable[Sequence[object]],
+) -> Graph:
+    """Build a graph from node identifiers and ``(u, v[, weight])`` edges.
+
+    Complexity: O(V + E).
+    """
+    g = Graph()
+    for node in nodes:
+        g.add_node(node)
+    for edge in edges:
+        if len(edge) == 2:
+            u, v = edge
+            weight = 1
+        elif len(edge) == 3:
+            u, v, weight = edge
+        else:
+            raise ValueError("Each edge must contain two or three values.")
+        g.add_edge(u, v, weight)
     return g
 
 def ring(num_nodes: int) -> Graph:

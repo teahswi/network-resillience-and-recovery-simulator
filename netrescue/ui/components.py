@@ -29,7 +29,7 @@ def _load_sample_networks() -> Dict[str, Path]:
     """Return a mapping from sample name to JSON file path.
     Expected files live under ``data/sample_networks``.
     """
-    base = Path(__file__).resolve().parents[2] / "data" / "sample_networks"
+    base = Path(__file__).resolve().parents[1] / "data" / "sample_networks"
     mapping = {}
     if base.is_dir():
         for p in base.glob("*.json"):
@@ -141,4 +141,3 @@ def reset_state() -> None:
     for key in ["graph", "src", "dst", "failed_nodes", "failed_edges", "algorithm"]:
         if key in st.session_state:
             del st.session_state[key]
-

@@ -10,10 +10,12 @@ import time
 from typing import List, Dict, Any
 
 import random
+import pandas as pd
 
 
 from .graph import Graph
-from .generator import random_graph
+from .generator import random
+import pandas as pd_graph
 from .bfs import bfs
 from .dijkstra import dijkstra
 from .critical import tarjan_articulation_and_bridges

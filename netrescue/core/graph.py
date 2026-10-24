@@ -18,10 +18,24 @@ from __future__ import annotations
 
 import copy
 import json
-from typing import Dict, Iterable, List, Tuple, Set, Any
+import math
+from numbers import Real
+from typing import Dict, Iterable, Tuple, Set, Any
 
 Node = Any
 Weight = float
+
+def edge_key(u: Node, v: Node) -> tuple[Node, Node]:
+    """Return a canonical key for an undirected edge in O(1).
+
+    String node identifiers are ordered lexicographically. Other comparable
+    identifiers are ordered naturally; mixed, non-comparable identifiers use
+    their representations to retain a deterministic key.
+    """
+    try:
+        return (u, v) if u <= v else (v, u)
+    except TypeError:
+        return (u, v) if repr(u) <= repr(v) else (v, u)
 
 class Graph:
     """Undirected weighted graph using an adjacency‑list representation.
@@ -77,8 +91,12 @@ class Graph:
         If the edge already exists, its weight is overwritten.
         Complexity: **O(1)**.
         """
-        if w < 0:
-            raise ValueError("Edge weight must be non‑negative for Dijkstra.")
+        if u == v:
+            raise ValueError("Self-loops are not supported.")
+        if isinstance(w, bool) or not isinstance(w, Real):
+            raise TypeError("Edge weight must be a real number.")
+        if not math.isfinite(float(w)) or w < 0:
+            raise ValueError("Edge weight must be finite and non-negative.")
         self.add_node(u)
         self.add_node(v)
         self.adj[u][v] = w
@@ -161,14 +179,33 @@ class Graph:
         """
         return copy.deepcopy(self.adj)
 
+    def to_json(self) -> str:
+        """Serialize the graph as JSON in O(V + E)."""
+        return json.dumps(self.to_dict(), sort_keys=True)
+
     @staticmethod
     def from_dict(data: Dict[Node, Dict[Node, Weight]]) -> "Graph":
         """Create a ``Graph`` from a dict produced by ``to_dict``.
         """
+        if not isinstance(data, dict):
+            raise TypeError("Graph data must be a dictionary.")
         g = Graph()
-        # Ensure we copy the structure to avoid external mutation.
-        g.adj = copy.deepcopy(data)
+        for node, neighbours in data.items():
+            if not isinstance(neighbours, dict):
+                raise TypeError("Each node must map to a neighbour dictionary.")
+            g.add_node(node)
+            for neighbour, weight in neighbours.items():
+                g.add_edge(node, neighbour, weight)
+        for u, neighbours in data.items():
+            for v, weight in neighbours.items():
+                if v not in data or data[v].get(u) != weight:
+                    raise ValueError("Graph adjacency data must be symmetric.")
         return g
+
+    @staticmethod
+    def from_json(value: str) -> "Graph":
+        """Deserialize a JSON graph representation in O(V + E)."""
+        return Graph.from_dict(json.loads(value))
 
     # ---------------------------------------------------------------------
     # Convenience helpers

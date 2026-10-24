@@ -7,8 +7,12 @@ in the ``netrescue.core`` package.
 
 from __future__ import annotations
 
-import streamlit as st
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import streamlit as st
 
 from netrescue.ui.components import sidebar_controls, reset_state
 from netrescue.ui.visualizer import build_pyvis_html, save_visualization

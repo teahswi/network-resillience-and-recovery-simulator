@@ -7,11 +7,16 @@ failed nodes/edges – the caller should provide a filtered graph if needed.
 from __future__ import annotations
 
 from collections import deque
-from typing import List, Tuple, Any
+from typing import List, Tuple
 
 from .graph import Graph, Node
 
-def bfs(g: Graph, src: Node, dst: Node) -> Tuple[bool, List[Node], List[Node]]:
+def bfs(
+    g: Graph,
+    src: Node,
+    dst: Node,
+    trace: List[dict] | None = None,
+) -> Tuple[bool, List[Node], List[Node]]:
     """Breadth‑first search.
 
     Returns
@@ -34,6 +39,14 @@ def bfs(g: Graph, src: Node, dst: Node) -> Tuple[bool, List[Node], List[Node]]:
     while queue:
         u = queue.popleft()
         visited_order.append(u)
+        if trace is not None:
+            trace.append({
+                "step": len(trace),
+                "node": u,
+                "kind": "visit",
+                "frontier": list(queue),
+                "dist": None,
+            })
         if u == dst:
             # reconstruct path
             path: List[Node] = []

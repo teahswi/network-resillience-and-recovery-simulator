@@ -1,7 +1,7 @@
-streamlit
-networkx
-pyvis
-pandas
-plotly
-matplotlib
-pytest
+streamlit==1.39.0
+networkx==3.3
+pyvis==0.3.2
+pandas==2.2.3
+plotly==5.24.1
+matplotlib==3.9.2
+pytest==8.3.3

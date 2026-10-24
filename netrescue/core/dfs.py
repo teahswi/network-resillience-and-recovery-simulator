@@ -7,7 +7,7 @@ caller should supply a filtered copy if needed.
 
 from __future__ import annotations
 
-from typing import List, Set, Tuple, Any
+from typing import List, Set
 
 from .graph import Graph, Node
 
@@ -50,7 +50,11 @@ def dfs_recursive(g: Graph, start: Node, visited: Set[Node] | None = None, order
     Returns
     -------
     list of nodes
-        Visitation order.
+        Visitation order. Python's recursion limit applies; use
+        :func:`dfs_iterative` for deep graphs.
+
+    Complexity: **O(V + E)** time and **O(V)** space, excluding call-stack
+    depth.
     """
     if visited is None:
         visited = set()
@@ -88,4 +92,5 @@ def connected_components(g: Graph) -> List[Set[Node]]:
                 if v not in seen:
                     stack.append(v)
         components.append(comp)
+    components.sort(key=lambda component: (-len(component), min(map(str, component))))
     return components
