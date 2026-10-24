@@ -1,9 +1,4 @@
-"""Entry point for NetRescue Streamlit app.
-
-The app glues together the sidebar controls, the visualizer and the core
-recovery/benchmark logic. It is deliberately lightweight – all heavy work lives
-in the ``netrescue.core`` package.
-"""
+"""Streamlit entry point for NetRescue."""
 
 from __future__ import annotations
 
@@ -14,109 +9,89 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import streamlit as st
 
-from netrescue.ui.components import sidebar_controls, reset_state
-from netrescue.ui.visualizer import build_pyvis_html, save_visualization
-from netrescue.core.recovery import recover
 from netrescue.core.bfs import bfs
-from netrescue.core.benchmark import run_benchmarks, compute_resilience_score
+from netrescue.core.critical import tarjan_articulation_and_bridges, vulnerability_report
+from netrescue.core.dijkstra import dijkstra
+from netrescue.core.recovery import RecoveryEngine
+from netrescue.ui.components import reset_state, sidebar_controls
+from netrescue.ui.visualizer import build_pyvis_html
 
-# ---------------------------------------------------------------------------
-st.set_page_config(page_title="NetRescue – Network Resilience Simulator", layout="wide")
-
-# Sidebar – get configuration and store in session_state
+st.set_page_config(page_title="NetRescue", layout="wide")
 config = sidebar_controls()
 graph = config["graph"]
-src = config["src"]
-dst = config["dst"]
-failed_nodes = config["failed_nodes"]
-failed_edges = config["failed_edges"]
-algorithm = config["algorithm"]
+src, dst = config["src"], config["dst"]
+failed_nodes, failed_edges = config["failed_nodes"], config["failed_edges"]
 
-# Main area – tabs ----------------------------------------------------------
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "Network",
-    "Recovery",
-    "Critical Points",
-    "Benchmark",
-    "Resilience Score",
-])
+failed_graph = graph.copy()
+for node in failed_nodes:
+    failed_graph.remove_node(node)
+for u, v in failed_edges:
+    failed_graph.remove_edge(u, v)
 
-# -------------------- Network tab ----------------------------------------
-with tab1:
-    st.header("📡 Network topology")
-    # Build visualisation HTML (cached)
-    @st.cache_data(show_spinner=False)
-    def get_html():
-        return build_pyvis_html(
-            graph,
-            failed_nodes=failed_nodes,
-            failed_edges=failed_edges,
-        )
-    html = get_html()
-    st.components.v1.html(html, height=600, scrolling=True)
+ap, bridges = tarjan_articulation_and_bridges(graph)
+report = RecoveryEngine(graph).analyze(src, dst, failed_nodes, failed_edges)
+old_route = report.old_path
+new_route = report.dijkstra_path
 
-# -------------------- Recovery tab ---------------------------------------
-with tab2:
-    st.header("🔧 Recovery analysis")
-    from netrescue.core.failure import FailureSimulator
-    # Build a minimal FailureSimulator with the selected failures
-    failure_sim = FailureSimulator()
-    failure_sim.failed_nodes = set(failed_nodes)
-    failure_sim.failed_edges = set(failed_edges)
-    result = recover(graph, src, dst, failure_sim=failure_sim)
-    st.subheader(f"Status: {result['status']}")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write("**Original path**")
-        st.write(result["old_path"] or "–")
-        st.write(f"Cost: {result['old_cost']:.2f}" if result['old_cost'] != float('inf') else "∞")
-    with col2:
-        st.write("**New path after failures**")
-        st.write(result["new_path"] or "–")
-        st.write(f"Cost: {result['new_cost']:.2f}" if result['new_cost'] != float('inf') else "∞")
-    if result["cost_increase_pct"] is not None:
-        st.metric("Cost increase %", f"{result['cost_increase_pct']:.1f}%")
-    if result["hop_delta"] is not None:
-        st.metric("Hop delta", f"{result['hop_delta']:+d}")
+network_tab, recovery_tab, critical_tab, benchmark_tab, resilience_tab = st.tabs(
+    ["Network", "Recovery", "Critical Points", "Benchmark", "Resilience"]
+)
 
-# -------------------- Critical Points tab --------------------------------
-with tab3:
-    st.header("🧩 Critical routers & bridges")
-    from netrescue.core.critical import tarjan_articulation_and_bridges, vulnerability_report
-    ap, bridges = tarjan_articulation_and_bridges(graph)
-    st.subheader("Articulation points (critical routers)")
-    if ap:
-        report = vulnerability_report(graph)
-        st.table([{"Router": r, "Nodes cut off": loss} for r, loss in report])
-    else:
-        st.write("No articulation points.")
-    st.subheader("Bridges (critical links)")
-    if bridges:
-        st.write([f"{u} – {v}" for u, v in bridges])
-    else:
-        st.write("No bridges.")
+with network_tab:
+    st.header("Network topology")
+    html = build_pyvis_html(
+        graph,
+        failed_nodes=failed_nodes,
+        failed_edges=failed_edges,
+        route=old_route,
+        alt_route=new_route if new_route != old_route else (),
+        critical=ap,
+        bridges=bridges,
+    )
+    st.components.v1.html(html, height=650, scrolling=True)
 
-# -------------------- Benchmark tab --------------------------------------
-with tab4:
-    st.header("⚡ Benchmark")
-    sizes = st.multiselect("Graph sizes to benchmark", options=[10, 50, 100, 500, 1000], default=[10, 50, 100])
-    if st.button("Run benchmark"):
-        df = run_benchmarks(sizes=sizes)
-        st.dataframe(df)
-        st.line_chart(df.pivot(index="size", columns="algorithm", values="avg_time_ms"), y="avg_time_ms")
+with recovery_tab:
+    st.header("Recovery analysis")
+    badge = {
+        "RECOVERED": "🟢", "UNAFFECTED": "🟢",
+        "DEGRADED": "🟠", "DISCONNECTED": "🔴",
+    }[report.status]
+    st.subheader(f"{badge} {report.status}")
+    if report.reason:
+        st.caption(f"Reason: {report.reason}")
+    left, right = st.columns(2)
+    left.write({"original_path": report.old_path, "cost": report.old_cost, "hops": report.old_hops})
+    right.write({
+        "dijkstra_path": report.dijkstra_path,
+        "dijkstra_cost": report.dijkstra_cost,
+        "bfs_path": report.bfs_path,
+        "bfs_hops": report.bfs_hops,
+    })
+    if report.cost_increase_pct is not None:
+        st.metric("Cost increase", f"{report.cost_increase_pct:.1f}%")
+    if report.extra_hops is not None:
+        st.metric("Extra hops", report.extra_hops)
+    if report.components:
+        st.write("Islands", report.components)
 
-# -------------------- Resilience Score tab ------------------------------
-with tab5:
-    st.header("🏆 Resilience Score")
-    trials = st.slider("Monte‑Carlo trials", 50, 500, 200, step=50)
-    if st.button("Compute score"):
-        score = compute_resilience_score(graph, trials=trials)
-        st.success(f"Resilience Score: {score}/100")
-        st.caption(
-            "Score = 0.5·connectivity + 0.3·(1‑critical‑frac) + 0.2·(1/(1+cost‑inflation)) multiplied by 100"
-        )
+with critical_tab:
+    st.header("Critical routers and links")
+    impacts = vulnerability_report(graph)
+    st.dataframe([
+        {"kind": item.kind, "id": str(item.id),
+         "nodes_cut_off": item.nodes_cut_off,
+         "islands_created": item.islands_created}
+        for item in impacts
+    ], use_container_width=True)
 
-# ---------------------------------------------------------------------------
+with benchmark_tab:
+    st.header("Benchmark")
+    st.info("Run benchmarks from the core benchmark module in Stage 6.")
+
+with resilience_tab:
+    st.header("Resilience")
+    st.info("Resilience scoring is available in the Stage 6 benchmark workflow.")
+
 if st.sidebar.button("Reset all"):
     reset_state()
-    st.experimental_rerun()
+    st.rerun()

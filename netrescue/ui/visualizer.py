@@ -1,103 +1,105 @@
-"""Visualization utilities for NetRescue.
-
-Creates a PyVis network (HTML) from the custom :class:`netrescue.core.graph.Graph`
-instance, applying colour coding for node/edge states (healthy, failed, bridge,
-critical, etc.). The generated HTML is intended to be displayed inside Streamlit
-via ``st.components.v1.html``.
-"""
+"""Pure PyVis rendering helpers for the Streamlit UI."""
 
 from __future__ import annotations
 
 import json
-from typing import Set, Tuple, Dict, Any
+from pathlib import Path
+from typing import Any, Iterable
 
 import networkx as nx
 from pyvis.network import Network
 
-from ..core.graph import Graph, Node
-from ..core.critical import tarjan_articulation_and_bridges
+from ..core.graph import Graph, Node, edge_key
 
-# ---------------------------------------------------------------------------
+
 def _to_networkx(g: Graph) -> nx.Graph:
-    """Convert the custom Graph to a NetworkX graph for layout utilities.
-    Edge weights are stored as the ``weight`` attribute.
-    """
-    nx_g = nx.Graph()
-    for u in g.nodes():
-        nx_g.add_node(u)
-    for u, v, w in g.edges():
-        nx_g.add_edge(u, v, weight=w)
-    return nx_g
+    """Convert a core graph for layout only in O(V + E)."""
+    result = nx.Graph()
+    result.add_nodes_from(g.nodes())
+    result.add_edges_from((u, v, {"weight": w}) for u, v, w in g.edges())
+    return result
 
-# ---------------------------------------------------------------------------
+
 def build_pyvis_html(
     g: Graph,
-    failed_nodes: Set[Node] | None = None,
-    failed_edges: Set[Tuple[Node, Node]] | None = None,
-    highlight_path: Tuple[Node, ...] | None = None,
+    failed_nodes: Iterable[Node] = (),
+    failed_edges: Iterable[tuple[Node, Node]] = (),
+    route: Iterable[Node] = (),
+    alt_route: Iterable[Node] = (),
+    critical: Iterable[Node] = (),
+    bridges: Iterable[tuple[Node, Node]] = (),
+    positions: dict[Node, tuple[float, float]] | None = None,
+    replay_state: dict[str, Any] | None = None,
+    highlight_path: tuple[Node, ...] | None = None,
 ) -> str:
-    """Return an HTML string rendering the network.
+    """Build inline, deterministic PyVis HTML without running algorithms."""
+    failed_nodes = set(failed_nodes)
+    failed_edges = {edge_key(u, v) for u, v in failed_edges}
+    critical = set(critical)
+    bridges = {edge_key(u, v) for u, v in bridges}
+    route_set = {
+        edge_key(route_list[i], route_list[i + 1])
+        for route_list in [list(route) if route else list(highlight_path or ())]
+        for i in range(len(route_list) - 1)
+    }
+    alt_list = list(alt_route)
+    alt_set = {edge_key(alt_list[i], alt_list[i + 1]) for i in range(len(alt_list) - 1)}
+    visited = set((replay_state or {}).get("visited", ()))
+    frontier = set((replay_state or {}).get("frontier", ()))
+    current = (replay_state or {}).get("current")
 
-    Parameters
-    ----------
-    g : Graph
-        The underlying topology.
-    failed_nodes, failed_edges : sets, optional
-        Nodes/edges to colour red (failed) or gray (cut).
-    highlight_path : tuple of nodes, optional
-        The current active route – rendered in blue.
-    """
-    failed_nodes = failed_nodes or set()
-    failed_edges = failed_edges or set()
-    ap, bridges = tarjan_articulation_and_bridges(g)
+    net = Network(height="600px", width="100%", directed=False, cdn_resources="in_line")
+    layout = positions or {
+        node: (float(x), float(y))
+        for node, (x, y) in nx.spring_layout(_to_networkx(g), seed=42).items()
+    }
+    for node in g.nodes():
+        if node in failed_nodes:
+            color = "#e53935"
+        elif node in critical:
+            color = "#8e44ad"
+        elif node in visited:
+            color = "#3498db"
+        else:
+            color = "#2ecc71"
+        options: dict[str, Any] = {
+            "label": str(node),
+            "color": color,
+            "x": layout[node][0] * 500,
+            "y": layout[node][1] * 500,
+            "title": f"Router {node}",
+        }
+        if node in critical:
+            options.update({"borderWidth": 6, "shadow": {"color": "#8e44ad"}})
+        if node in frontier:
+            options["shape"] = "diamond"
+        if node == current:
+            options["size"] = 25
+        net.add_node(node, **options)
 
-    net = Network(height="600px", width="100%", directed=False)
-    net.barnes_hut()
+    for u, v, weight in g.edges():
+        key = edge_key(u, v)
+        style = {"color": "#555", "width": 1, "dashes": False}
+        if key in failed_edges or u in failed_nodes or v in failed_nodes:
+            style = {"color": "#999", "width": 2, "dashes": True}
+        elif key in route_set:
+            style = {"color": "#1976d2", "width": 5, "dashes": False}
+        elif key in alt_set:
+            style = {"color": "#f39c12", "width": 5, "dashes": False}
+        elif key in bridges:
+            style = {"color": "#c62828", "width": 4, "dashes": False}
+        net.add_edge(u, v, value=weight, title=f"weight={weight}", **style)
+    net.set_options(json.dumps({"physics": {"enabled": False}}))
+    return net.generate_html() + (
+        "<div><b>Legend:</b> "
+        "<span style='color:#2ecc71'>healthy</span> · "
+        "<span style='color:#e53935'>failed</span> · "
+        "<span style='color:#1976d2'>route</span> · "
+        "<span style='color:#f39c12'>alternate</span> · "
+        "<span style='color:#c62828'>bridge</span></div>"
+    )
 
-    # Add nodes with colour based on state
-    for n in g.nodes():
-        color = "green"
-        if n in failed_nodes:
-            color = "red"
-        elif n in ap:
-            color = "purple"
-        title = f"Router {n}"
-        net.add_node(n, label=n, color=color, title=title)
 
-    # Helper to decide edge colour/style
-    def edge_style(u: Node, v: Node) -> Dict[str, Any]:
-        edge_key = (u, v) if u < v else (v, u)
-        style = {"color": "black", "width": 1, "dashes": False}
-        if edge_key in failed_edges:
-            style.update({"color": "gray", "width": 2, "dashes": True})
-        elif edge_key in bridges:
-            style.update({"color": "red", "width": 3})
-        if highlight_path and edge_key in {
-            (highlight_path[i], highlight_path[i + 1])
-            for i in range(len(highlight_path) - 1)
-        }:
-            style.update({"color": "blue", "width": 4})
-        return style
-
-    # Add edges
-    for u, v, w in g.edges():
-        style = edge_style(u, v)
-        net.add_edge(u, v, value=w, title=f"weight={w}", color=style["color"], width=style["width"], dashes=style["dashes"])
-
-    # Generate HTML
-    net.set_options(json.dumps({
-        "physics": {"enabled": True},
-        "nodes": {"shape": "dot", "size": 15},
-        "edges": {"smooth": {"type": "continuous"}}
-    }))
-    return net.generate_html()
-
-# ---------------------------------------------------------------------------
 def save_visualization(html: str, path: str) -> None:
-    """Write the HTML to *path*.
-    Used by the UI for caching.
-    """
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(html)
-
-"""End of visualizer module."""
+    """Write visualization HTML to a file in O(n) time."""
+    Path(path).write_text(html, encoding="utf-8")
