@@ -9,7 +9,8 @@ from __future__ import annotations
 import time
 from typing import List, Dict, Any
 
-import pandas as pd
+import random
+
 
 from .graph import Graph
 from .generator import random_graph

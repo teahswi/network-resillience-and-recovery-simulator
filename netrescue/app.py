@@ -13,6 +13,7 @@ from pathlib import Path
 from netrescue.ui.components import sidebar_controls, reset_state
 from netrescue.ui.visualizer import build_pyvis_html, save_visualization
 from netrescue.core.recovery import recover
+from netrescue.core.bfs import bfs
 from netrescue.core.benchmark import run_benchmarks, compute_resilience_score
 
 # ---------------------------------------------------------------------------
