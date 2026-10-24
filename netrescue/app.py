@@ -10,6 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import streamlit as st
 
 from netrescue.core.bfs import bfs
+from netrescue.core.benchmark import (
+    compute_resilience,
+    recovery_rate,
+    run_benchmarks,
+)
 from netrescue.core.critical import tarjan_articulation_and_bridges, vulnerability_report
 from netrescue.core.dijkstra import dijkstra
 from netrescue.core.recovery import RecoveryEngine
@@ -86,11 +91,42 @@ with critical_tab:
 
 with benchmark_tab:
     st.header("Benchmark")
-    st.info("Run benchmarks from the core benchmark module in Stage 6.")
+    sizes = st.multiselect(
+        "Graph sizes",
+        [10, 50, 100, 500, 1000],
+        default=[10, 50, 100],
+    )
+    if st.button("Run benchmark"):
+        rows = run_benchmarks(sizes=tuple(sizes), repeats=3, pairs=5)
+        st.dataframe(rows, use_container_width=True)
+        st.line_chart(
+            {
+                row["algorithm"]: {
+                    row["size"]: row["avg_time_ms"] for row in rows
+                    if row["algorithm"] == algorithm
+                }
+                for algorithm in sorted({row["algorithm"] for row in rows})
+            }
+        )
+    trap_results = recovery_rate(graph, trials=10, node_failures=0, edge_failures=0)
+    st.caption(f"Recovery-rate sample: {trap_results['rate']:.0%}")
 
 with resilience_tab:
     st.header("Resilience")
-    st.info("Resilience scoring is available in the Stage 6 benchmark workflow.")
+    trials = st.slider("Monte Carlo trials", 0, 500, 50, step=10)
+    if st.button("Compute resilience"):
+        resilience = compute_resilience(graph, trials=trials)
+        st.metric("Resilience score", f"{resilience.score:.2f}/100")
+        st.write({
+            "connectivity": resilience.connectivity,
+            "critical contribution": resilience.critical_term,
+            "inflation contribution": resilience.inflation_term,
+            "average inflation": resilience.avg_inflation,
+        })
+        st.latex(
+            r"100\left(0.5C + 0.3(1-\frac{|AP|}{|V|}) + "
+            r"0.2\frac{1}{1+\bar I}\right)"
+        )
 
 if st.sidebar.button("Reset all"):
     reset_state()
