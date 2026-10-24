@@ -13,6 +13,12 @@ python -m venv .venv
 pip install -r netrescue\requirements.txt
 pip install -e .
 python -m pytest -q
+streamlit run app.py
+```
+
+You can also launch the package entry point directly:
+
+```powershell
 streamlit run netrescue\app.py
 ```
 
