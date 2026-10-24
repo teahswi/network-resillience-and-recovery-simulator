@@ -24,8 +24,8 @@ def test_recover_node_failure_on_path():
     result = recover(g, src, dst, sim)
     assert result["status"] in {"RECOVERED", "DEGRADED"}
     assert result["affected"] is True
-    # New path should avoid R2
-    assert "R2" not in result["new_path"]
+    # New path should avoid the failed router
+    assert "R4" not in result["new_path"]
 
 def test_recover_disconnected():
     g = ring(4)
