@@ -1,97 +1,210 @@
-"""Failure simulation for NetRescue.
-
-The simulator tracks failed nodes and edges without mutating the original
-graph. It keeps a history stack so the UI can provide undo/redo and a timeline.
-"""
+"""Failure simulation, replay, and cascade modeling."""
 
 from __future__ import annotations
 
-import copy
+from dataclasses import dataclass
 import random
-from typing import Set, Tuple, List, Dict, Any
+from typing import Any, Iterable
 
-from .graph import Graph, Node
+from .graph import Graph, Node, edge_key
+
+
+@dataclass(frozen=True)
+class Step:
+    """Immutable failure snapshot recorded in the timeline."""
+
+    label: str
+    nodes: frozenset[Node]
+    edges: frozenset[tuple[Node, Node]]
+
 
 class FailureSimulator:
-    """Manage node and edge failures.
+    """Manage validated failures without mutating the source graph.
 
-    Attributes
-    ----------
-    failed_nodes : set of Node
-        Nodes currently marked as failed.
-    failed_edges : set of (Node, Node)
-        Undirected edges currently marked as cut.
-    history : list of dict
-        Each entry records ``{'nodes': set, 'edges': set}`` after an operation.
+    Complexity of applying a state is O(V + E). When a graph is supplied at
+    construction, mutation methods validate node and edge identifiers.
     """
 
-    def __init__(self) -> None:
-        self.failed_nodes: Set[Node] = set()
-        self.failed_edges: Set[Tuple[Node, Node]] = set()
-        self.history: List[Dict[str, Any]] = []
-        self._record_state()
+    def __init__(self, graph: Graph | None = None) -> None:
+        self.graph = graph
+        self._failed_nodes: frozenset[Node] = frozenset()
+        self._failed_edges: frozenset[tuple[Node, Node]] = frozenset()
+        self._steps: list[Step] = [
+            Step("initial", self._failed_nodes, self._failed_edges)
+        ]
+        self._cursor = 0
 
-    # ------------------------------------------------------------------
-    def _record_state(self) -> None:
-        self.history.append({
-            'nodes': copy.deepcopy(self.failed_nodes),
-            'edges': copy.deepcopy(self.failed_edges)
-        })
+    @property
+    def failed_nodes(self) -> frozenset[Node]:
+        """Currently failed nodes as an immutable set."""
+        return self._failed_nodes
 
-    # ------------------------------------------------------------------
+    @property
+    def failed_edges(self) -> frozenset[tuple[Node, Node]]:
+        """Currently failed edges as canonical immutable keys."""
+        return self._failed_edges
+
+    def _validate_node(self, node: Node, graph: Graph | None = None) -> None:
+        target = graph or self.graph
+        if target is not None and node not in target.adj:
+            raise KeyError(f"Unknown node: {node!r}")
+
+    def _validate_edge(self, u: Node, v: Node, graph: Graph | None = None) -> tuple[Node, Node]:
+        target = graph or self.graph
+        key = edge_key(u, v)
+        if target is not None and not target.has_edge(u, v):
+            raise KeyError(f"Unknown edge: {u!r}, {v!r}")
+        return key
+
+    def _record(self, label: str) -> None:
+        self._steps = self._steps[: self._cursor + 1]
+        self._steps.append(Step(label, self._failed_nodes, self._failed_edges))
+        self._cursor += 1
+
     def fail_node(self, node: Node) -> None:
-        self.failed_nodes.add(node)
-        self._record_state()
+        """Fail a node and record one timeline step in O(1)."""
+        self._validate_node(node)
+        self._failed_nodes = self._failed_nodes | {node}
+        self._record(f"fail node {node}")
 
     def restore_node(self, node: Node) -> None:
-        self.failed_nodes.discard(node)
-        self._record_state()
+        """Restore a node and record one timeline step in O(1)."""
+        self._validate_node(node)
+        self._failed_nodes = self._failed_nodes - {node}
+        self._record(f"restore node {node}")
 
     def fail_edge(self, u: Node, v: Node) -> None:
-        edge = (u, v) if u < v else (v, u)
-        self.failed_edges.add(edge)
-        self._record_state()
+        """Fail an existing edge and record one timeline step in O(1)."""
+        key = self._validate_edge(u, v)
+        self._failed_edges = self._failed_edges | {key}
+        self._record(f"fail edge {key[0]}-{key[1]}")
 
     def restore_edge(self, u: Node, v: Node) -> None:
-        edge = (u, v) if u < v else (v, u)
-        self.failed_edges.discard(edge)
-        self._record_state()
+        """Restore an edge and record one timeline step in O(1)."""
+        key = self._validate_edge(u, v)
+        self._failed_edges = self._failed_edges - {key}
+        self._record(f"restore edge {key[0]}-{key[1]}")
 
-    def reset(self) -> None:
-        self.failed_nodes.clear()
-        self.failed_edges.clear()
-        self._record_state()
+    def restore_all(self) -> None:
+        """Restore every failure and record a timeline step in O(1)."""
+        self._failed_nodes = frozenset()
+        self._failed_edges = frozenset()
+        self._record("restore all")
 
-    # ------------------------------------------------------------------
-    def apply_to(self, g: Graph) -> Graph:
-        """Return a copy of *g* with current failures applied.
-        Nodes in ``failed_nodes`` are removed, and edges in ``failed_edges`` are
-        omitted.
-        """
-        g_copy = g.copy()
-        for n in self.failed_nodes:
-            g_copy.remove_node(n)
-        for u, v in self.failed_edges:
-            if g_copy.has_edge(u, v):
-                g_copy.remove_edge(u, v)
-        return g_copy
+    reset = restore_all
 
-    # ------------------------------------------------------------------
-    def random_failure(self, g: Graph, node_count: int = 0, edge_count: int = 0, seed: int | None = None) -> None:
-        """Fail ``node_count`` random nodes and ``edge_count`` random edges.
-        ``seed`` makes the selection reproducible.
-        """
+    def undo(self) -> None:
+        """Move one step backward in O(1)."""
+        if self._cursor > 0:
+            self._cursor -= 1
+            self._load(self._steps[self._cursor])
+
+    def redo(self) -> None:
+        """Move one step forward in O(1)."""
+        if self._cursor + 1 < len(self._steps):
+            self._cursor += 1
+            self._load(self._steps[self._cursor])
+
+    def jump(self, index: int) -> None:
+        """Jump to a timeline index in O(1)."""
+        if not 0 <= index < len(self._steps):
+            raise IndexError("Timeline index out of range.")
+        self._cursor = index
+        self._load(self._steps[index])
+
+    def _load(self, step: Step) -> None:
+        self._failed_nodes = step.nodes
+        self._failed_edges = step.edges
+
+    def timeline(self) -> list[str]:
+        """Return timeline labels in O(T)."""
+        return [step.label for step in self._steps]
+
+    def get_history(self) -> list[dict[str, Any]]:
+        """Return compatibility history snapshots in O(T)."""
+        return [
+            {"label": step.label, "nodes": set(step.nodes), "edges": set(step.edges)}
+            for step in self._steps
+        ]
+
+    def random_failure(
+        self,
+        graph: Graph | None = None,
+        node_count: int = 0,
+        edge_count: int = 0,
+        seed: int | None = None,
+        protect: frozenset[Node] = frozenset(),
+    ) -> None:
+        """Apply one reproducible random-failure step in O(V + E)."""
+        target = graph or self.graph
+        if target is None:
+            raise ValueError("A graph is required for random failures.")
         rnd = random.Random(seed)
-        available_nodes = [n for n in g.nodes() if n not in self.failed_nodes]
-        available_edges = [(u, v) for u, v, _ in g.edges() if (u, v) not in self.failed_edges and (v, u) not in self.failed_edges]
-        rnd.shuffle(available_nodes)
-        rnd.shuffle(available_edges)
-        for n in available_nodes[:node_count]:
-            self.fail_node(n)
-        for u, v in available_edges[:edge_count]:
-            self.fail_edge(u, v)
+        nodes = [n for n in target.nodes() if n not in protect]
+        edges = [edge_key(u, v) for u, v, _ in target.edges()]
+        selected_nodes = frozenset(rnd.sample(nodes, min(node_count, len(nodes))))
+        selected_edges = frozenset(rnd.sample(edges, min(edge_count, len(edges))))
+        self._failed_nodes = self._failed_nodes | selected_nodes
+        self._failed_edges = self._failed_edges | selected_edges
+        self._record("random failure")
 
-    # ------------------------------------------------------------------
-    def get_history(self) -> List[Dict[str, Any]]:
-        """Return the list of failure states for timeline playback."""
-        return self.history
+    def cascade(
+        self,
+        triggers: Iterable[Node],
+        capacity_factor: float = 1.5,
+        seed: int | None = None,
+    ) -> list[list[Node]]:
+        """Simulate deterministic load redistribution until stable.
+
+        Complexity: O(V·(V + E)) in the worst case and O(V + E) space.
+        """
+        if self.graph is None:
+            raise ValueError("A graph is required for cascades.")
+        if capacity_factor <= 0:
+            raise ValueError("capacity_factor must be positive.")
+        for node in triggers:
+            self._validate_node(node)
+        del seed  # Reserved for future stochastic cascade models.
+        load = {node: float(len(list(self.graph.neighbors(node)))) for node in self.graph.nodes()}
+        capacity = {node: capacity_factor * value for node, value in load.items()}
+        failed = set(self._failed_nodes)
+        rounds: list[list[Node]] = []
+        pending = set(triggers)
+        while pending:
+            newly_failed = sorted(pending - failed, key=str)
+            if not newly_failed:
+                break
+            failed.update(newly_failed)
+            redistributed: dict[Node, float] = {}
+            for node in newly_failed:
+                neighbours = [
+                    neighbour for neighbour in self.graph.neighbors(node)
+                    if neighbour not in failed
+                ]
+                share = load[node] / len(neighbours) if neighbours else 0.0
+                for neighbour in neighbours:
+                    redistributed[neighbour] = redistributed.get(neighbour, 0.0) + share
+            for node, amount in redistributed.items():
+                load[node] += amount
+            pending = {
+                node for node, value in load.items()
+                if node not in failed and value > capacity[node]
+            }
+            rounds.append(newly_failed)
+            self._failed_nodes = frozenset(failed)
+            self._record(f"cascade round {len(rounds)}")
+        return rounds
+
+    def apply(self, graph: Graph | None = None) -> Graph:
+        """Return a failed copy of the graph in O(V + E)."""
+        target = graph or self.graph
+        if target is None:
+            raise ValueError("A graph is required to apply failures.")
+        result = target.copy()
+        for node in self._failed_nodes:
+            result.remove_node(node)
+        for u, v in self._failed_edges:
+            result.remove_edge(u, v)
+        return result
+
+    apply_to = apply

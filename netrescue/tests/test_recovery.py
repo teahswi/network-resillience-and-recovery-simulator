@@ -20,7 +20,7 @@ def test_recover_node_failure_on_path():
     g = ring(5)
     src, dst = "R0", "R3"
     sim = FailureSimulator()
-    sim.fail_node("R2")  # R2 lies on the shortest path R0-R1-R2-R3
+    sim.fail_node("R4")  # R4 lies on the selected shortest path R0-R4-R3
     result = recover(g, src, dst, sim)
     assert result["status"] in {"RECOVERED", "DEGRADED"}
     assert result["affected"] is True
