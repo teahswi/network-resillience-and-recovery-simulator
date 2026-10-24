@@ -26,6 +26,7 @@ config = sidebar_controls()
 graph = config["graph"]
 src, dst = config["src"], config["dst"]
 failed_nodes, failed_edges = config["failed_nodes"], config["failed_edges"]
+algorithm = config["algorithm"]
 
 failed_graph = graph.copy()
 for node in failed_nodes:
@@ -44,6 +45,18 @@ network_tab, recovery_tab, critical_tab, benchmark_tab, resilience_tab = st.tabs
 
 with network_tab:
     st.header("Network topology")
+    replay_trace: list[dict] = []
+    if algorithm in {"BFS", "All (compare)"}:
+        bfs(failed_graph, src, dst, trace=replay_trace)
+    elif algorithm == "Dijkstra":
+        dijkstra(failed_graph, src, dst, trace=replay_trace)
+    replay_step = st.slider("Algorithm replay step", 0, len(replay_trace), len(replay_trace))
+    replay_events = replay_trace[:replay_step]
+    replay_state = {
+        "visited": [event["node"] for event in replay_events if event["kind"] == "visit"],
+        "frontier": replay_events[-1]["frontier"] if replay_events else [],
+        "current": replay_events[-1]["node"] if replay_events else None,
+    }
     html = build_pyvis_html(
         graph,
         failed_nodes=failed_nodes,
@@ -52,6 +65,7 @@ with network_tab:
         alt_route=new_route if new_route != old_route else (),
         critical=ap,
         bridges=bridges,
+        replay_state=replay_state,
     )
     st.components.v1.html(html, height=650, scrolling=True)
 
