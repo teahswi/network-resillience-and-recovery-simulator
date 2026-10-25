@@ -21,7 +21,38 @@ from netrescue.core.recovery import RecoveryEngine
 from netrescue.ui.components import reset_state, sidebar_controls
 from netrescue.ui.visualizer import build_pyvis_html
 
-st.set_page_config(page_title="NetRescue", layout="wide")
+st.set_page_config(page_title="NetRescue | Network Resilience", page_icon="◈", layout="wide")
+st.markdown("""
+<style>
+:root { color-scheme: dark; }
+.stApp { background: radial-gradient(ellipse at 48% 0%, #142333 0%, #080d14 52%); color: #e2e8f0; }
+[data-testid="stSidebar"] { background: #0a111b; border-right: 1px solid #263548; }
+[data-testid="stHeader"] { background: rgba(8,13,20,.85); }
+h1, h2, h3 { letter-spacing: -.035em; }
+h1 { color: #eaf8ff; font-weight: 700; }
+h2, h3 { color: #c9f4ff; }
+[data-testid="stMetric"] { background: #0b1420; border: 1px solid #263548; border-radius: 10px; padding: 14px 16px; }
+[data-testid="stMetricLabel"] { color: #91a4ba; }
+[data-testid="stMetricValue"] { color: #d9f8ff; }
+.stTabs [data-baseweb="tab-list"] { gap: 8px; border-bottom: 1px solid #29394b; }
+.stTabs [data-baseweb="tab"] { background: #0d1723; border: 1px solid #263548; border-radius: 7px 7px 0 0; padding: 9px 16px; }
+.stTabs [aria-selected="true"] { color: #a5f3fc !important; border-color: #398ba0 !important; }
+div[data-testid="stAlert"], div[data-testid="stExpander"] { border-radius: 8px; }
+.stButton > button { border: 1px solid #31546b; border-radius: 7px; background: #102232; color: #d9f8ff; }
+.stButton > button:hover { border-color: #67e8f9; color: #fff; }
+hr { border-color: #263548; }
+small, .stCaption { color: #91a4ba !important; }
+</style>
+""", unsafe_allow_html=True)
+st.markdown("""
+<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;
+padding:10px 0 18px;border-bottom:1px solid #263548;margin-bottom:18px;">
+ <div><div style="font-size:12px;letter-spacing:3px;color:#67e8f9;">◈ NETRESCUE / CONTROL PLANE</div>
+ <div style="font-size:30px;font-weight:750;letter-spacing:-1.2px;color:#eefaff;">Network Resilience Intelligence</div>
+ <div style="font-size:13px;color:#91a4ba;">Graph algorithms · Fault simulation · Recovery analysis</div></div>
+ <div style="border:1px solid #285b4d;background:#0b211e;color:#86efac;border-radius:20px;padding:7px 12px;font-size:11px;white-space:nowrap;">● SIMULATION READY</div>
+</div>
+""", unsafe_allow_html=True)
 config = sidebar_controls()
 graph = config["graph"]
 src, dst = config["src"], config["dst"]
@@ -38,6 +69,36 @@ ap, bridges = tarjan_articulation_and_bridges(graph)
 report = RecoveryEngine(graph).analyze(src, dst, failed_nodes, failed_edges)
 old_route = report.old_path
 new_route = report.dijkstra_path
+
+# Compact overview metrics make simulation state visible at a glance.
+active_nodes = len(graph.nodes()) - len(failed_nodes)
+active_links = sum(
+    1 for u, v, _ in graph.edges()
+    if u not in failed_nodes and v not in failed_nodes
+    and (u, v) not in failed_edges and (v, u) not in failed_edges
+)
+def _component_count(g):
+    seen = set()
+    count = 0
+    for start in g.nodes():
+        if start in seen:
+            continue
+        count += 1
+        stack = [start]
+        seen.add(start)
+        while stack:
+            current = stack.pop()
+            for neighbor in g.neighbors(current):
+                if neighbor not in seen:
+                    seen.add(neighbor)
+                    stack.append(neighbor)
+    return count
+
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("ONLINE ROUTERS", f"{active_nodes}/{len(graph.nodes())}")
+m2.metric("ACTIVE LINKS", active_links)
+m3.metric("NETWORK PARTITIONS", _component_count(failed_graph))
+m4.metric("SIMULATION STATE", "DEGRADED" if failed_nodes or failed_edges else "STABLE")
 
 network_tab, recovery_tab, critical_tab, benchmark_tab, resilience_tab = st.tabs(
     ["Network", "Recovery", "Critical Points", "Benchmark", "Resilience"]
