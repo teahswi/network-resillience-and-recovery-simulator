@@ -48,7 +48,10 @@ def build_pyvis_html(
     frontier = set((replay_state or {}).get("frontier", ()))
     current = (replay_state or {}).get("current")
 
-    net = Network(height="600px", width="100%", directed=False, cdn_resources="in_line")
+    net = Network(
+        height="600px", width="100%", directed=False,
+        bgcolor="#080d14", font_color="#dbeafe", cdn_resources="in_line",
+    )
     layout = positions or {
         node: (float(x), float(y))
         for node, (x, y) in nx.spring_layout(_to_networkx(g), seed=42).items()
@@ -64,7 +67,12 @@ def build_pyvis_html(
             color = "#2ecc71"
         options: dict[str, Any] = {
             "label": str(node),
-            "color": color,
+            "color": {
+                "background": color,
+                "border": "#67e8f9" if node in route else ("#f87171" if node in failed_nodes else "#526579"),
+                "highlight": {"background": "#164e63", "border": "#a5f3fc"},
+                "hover": {"background": "#164e63", "border": "#67e8f9"},
+            },
             "x": layout[node][0] * 500,
             "y": layout[node][1] * 500,
             "title": f"Router {node}",
@@ -79,7 +87,7 @@ def build_pyvis_html(
 
     for u, v, weight in g.edges():
         key = edge_key(u, v)
-        style = {"color": "#555", "width": 1, "dashes": False}
+        style = {"color": {"color": "#344256", "highlight": "#67e8f9", "hover": "#67e8f9"}, "width": 1, "dashes": False}
         if key in failed_edges or u in failed_nodes or v in failed_nodes:
             style = {"color": "#999", "width": 2, "dashes": True}
         elif key in route_set:
@@ -89,7 +97,12 @@ def build_pyvis_html(
         elif key in bridges:
             style = {"color": "#c62828", "width": 4, "dashes": False}
         net.add_edge(u, v, value=weight, title=f"weight={weight}", **style)
-    net.set_options(json.dumps({"physics": {"enabled": False}}))
+    net.set_options(json.dumps({
+        "physics": {"enabled": False},
+        "interaction": {"hover": True, "navigationButtons": True, "keyboard": True},
+        "edges": {"smooth": {"enabled": True, "type": "continuous"}},
+        "nodes": {"font": {"color": "#dbeafe", "size": 16, "face": "monospace"}},
+    }))
     return net.generate_html() + (
         "<div><b>Legend:</b> "
         "<span style='color:#2ecc71'>healthy</span> · "
