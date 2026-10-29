@@ -1,0 +1,50 @@
+# Sample India backbone. Real cities and positions; the links are illustrative, not a real ISP.
+# cost = great-circle distance / 100 km, capacity in bandwidth units
+title India backbone (sample)
+
+node Delhi 323 172
+node Mumbai 154 379
+node Bengaluru 329 522
+node Chennai 443 520
+node Kolkata 722 307
+node Hyderabad 369 423
+node Pune 221 420
+node Ahmedabad 157 297
+node Jaipur 272 210
+node Lucknow 457 212
+node Bhopal 330 292
+node Nagpur 390 339
+node Visakhapatnam 538 416
+node Kochi 267 598
+node Guwahati 843 228
+node Patna 607 240
+node Chandigarh 308 125
+node Srinagar 237 50
+node Bhubaneswar 631 358
+node Coimbatore 332 566
+
+link Srinagar Chandigarh 4.2 10
+link Chandigarh Delhi 2.4 20
+link Delhi Jaipur 2.4 40
+link Delhi Lucknow 4.2 40
+link Jaipur Ahmedabad 5.4 20
+link Ahmedabad Mumbai 4.4 40
+link Mumbai Pune 1.2 40
+link Pune Hyderabad 5.1 20
+link Delhi Bhopal 6.0 20
+link Bhopal Nagpur 2.9 20
+link Nagpur Hyderabad 4.2 40
+link Hyderabad Bengaluru 5.0 40
+link Hyderabad Chennai 5.2 20
+link Bengaluru Chennai 2.9 40
+link Bengaluru Kochi 3.7 20
+link Kochi Coimbatore 1.4 10
+link Coimbatore Chennai 4.3 10
+link Hyderabad Visakhapatnam 5.0 20
+link Visakhapatnam Bhubaneswar 4.0 20
+link Bhubaneswar Kolkata 3.6 20
+link Kolkata Patna 4.7 20
+link Patna Lucknow 4.4 20
+link Kolkata Guwahati 5.2 10
+link Pune Bengaluru 7.3 20
+link Mumbai Bhopal 6.6 20

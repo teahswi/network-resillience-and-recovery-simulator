@@ -1,0 +1,49 @@
+# Campus mesh: a 4x4 grid plus diagonals. No single failure disconnects it.
+title Campus mesh
+
+node Gate 200 110
+node Admin 400 110
+node Library 600 110
+node Auditorium 800 110
+node Canteen 200 250
+node CSE 400 250
+node ECE 600 250
+node Mech 800 250
+node Hostel-A 200 390
+node Lab-1 400 390
+node Lab-2 600 390
+node Civil 800 390
+node Hostel-B 200 530
+node Medical 400 530
+node Sports 600 530
+node Workshop 800 530
+
+link Gate Admin 2 20
+link Gate Canteen 3 20
+link Gate CSE 5 10
+link Admin Library 3 20
+link Admin CSE 4 20
+link Library Auditorium 4 20
+link Library ECE 3 20
+link Library Mech 5 10
+link Auditorium Mech 4 20
+link Canteen CSE 3 20
+link Canteen Hostel-A 3 20
+link CSE ECE 4 20
+link CSE Lab-1 4 20
+link CSE Lab-2 5 10
+link ECE Mech 2 20
+link ECE Lab-2 3 20
+link Mech Civil 4 20
+link Hostel-A Lab-1 4 20
+link Hostel-A Hostel-B 3 20
+link Hostel-A Medical 5 10
+link Lab-1 Lab-2 2 20
+link Lab-1 Medical 4 20
+link Lab-2 Civil 3 20
+link Lab-2 Sports 3 20
+link Lab-2 Workshop 5 10
+link Civil Workshop 4 20
+link Hostel-B Medical 2 20
+link Medical Sports 3 20
+link Sports Workshop 4 20
