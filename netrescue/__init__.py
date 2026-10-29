@@ -1,1 +1,0 @@
-"""NetRescue package initializer."""
