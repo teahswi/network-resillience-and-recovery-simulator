@@ -1,0 +1,28 @@
+# Small teaching network.
+# Critical routers: D, E, G, H.  Critical links: D-E, G-I, H-J.
+title Classroom demo
+
+node A 120 190
+node B 250 100
+node C 250 290
+node D 420 195
+node E 580 195
+node F 720 100
+node G 720 300
+node H 860 195
+node I 860 420
+node J 980 195
+
+link A B 4 20
+link B C 3 20
+link A C 6 20
+link B D 6 20
+link C D 5 20
+link D E 4 10
+link E F 3 20
+link E G 5 20
+link F H 4 20
+link G H 3 20
+link F G 6 20
+link G I 2 10
+link H J 3 10

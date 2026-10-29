@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NetRescue</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='8' cy='8' r='5' fill='%232563eb'/%3E%3Ccircle cx='24' cy='10' r='5' fill='%232563eb'/%3E%3Ccircle cx='15' cy='25' r='5' fill='%23e5484d'/%3E%3Cpath d='M8 8L24 10L15 25Z' fill='none' stroke='%232563eb' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <div>
+      <div class="brand-name">NetRescue</div>
+      <div class="brand-sub">Network resilience &amp; recovery simulator</div>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="network" role="tab">Network</button>
+    <button class="tab" data-tab="algos" role="tab">Algorithms</button>
+    <button class="tab" data-tab="analysis" role="tab">Analysis</button>
+    <button class="tab" data-tab="sim" role="tab">Simulation</button>
+    <button class="tab" data-tab="bench" role="tab">Benchmarks</button>
+    <button class="tab" data-tab="lab" role="tab">DS Lab</button>
+  </nav>
+  <div class="netbar">
+    <select id="sampleSelect" title="Load a sample network"></select>
+    <button id="btnOpenFile" class="ghost" title="Load a .txt or Topology Zoo .gml file">Open file</button>
+    <button id="btnGenerate" class="ghost" title="Generate a random network">Random</button>
+    <a id="btnExport" class="ghost button" href="/api/export" title="Download this network as a text file">Save</a>
+    <input type="file" id="fileInput" accept=".txt,.gml" hidden>
+  </div>
+</header>
+
+<main id="main">
+  <!-- shared network canvas (Network / Algorithms / Analysis / Simulation tabs) -->
+  <section id="stage" class="stage">
+    <div class="stage-head">
+      <div>
+        <div id="netTitle" class="net-title">Network</div>
+        <div id="netStats" class="net-stats"></div>
+      </div>
+      <div class="stage-tools">
+        <label class="check"><input type="checkbox" id="showCosts" checked> costs</label>
+        <label class="check"><input type="checkbox" id="showNames" checked> names</label>
+        <button id="btnFit" class="ghost small" title="Reset zoom">Fit</button>
+      </div>
+    </div>
+    <div id="canvasWrap" class="canvas-wrap">
+      <svg id="canvas" viewBox="0 0 1000 640" preserveAspectRatio="xMidYMid meet" aria-label="Network diagram">
+        <defs>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M40 0H0V40" fill="none" class="gridline"/>
+          </pattern>
+        </defs>
+        <g id="viewport">
+          <rect x="-5000" y="-5000" width="11000" height="11000" fill="url(#grid)" id="bgRect"/>
+          <g id="layerEdges"></g>
+          <g id="layerOverlay"></g>
+          <g id="layerNodes"></g>
+          <g id="layerLabels"></g>
+        </g>
+      </svg>
+      <div id="canvasHint" class="canvas-hint"></div>
+      <div id="legend" class="legend"></div>
+    </div>
+  </section>
+
+  <!-- side panels, one per tab -->
+  <aside id="side" class="side">
+
+    <!-- ============ NETWORK ============ -->
+    <div class="panel" data-panel="network">
+      <div class="card">
+        <h3>Edit mode</h3>
+        <div class="seg" id="modeSeg">
+          <button data-mode="select" class="active" title="Select and drag routers">Select</button>
+          <button data-mode="addNode" title="Click empty space to add a router">+ Router</button>
+          <button data-mode="addEdge" title="Click two routers to link them">+ Link</button>
+          <button data-mode="toggle" title="Click a router or link to fail / repair it">Fail/Repair</button>
+          <button data-mode="delete" title="Click a router or link to delete it">Delete</button>
+        </div>
+        <div class="row gap">
+          <button id="btnUndo" class="ghost" title="Undo (Ctrl+Z)">Undo</button>
+          <button id="btnRedo" class="ghost" title="Redo (Ctrl+Y)">Redo</button>
+          <button id="btnRepairAll" class="ghost">Repair all</button>
+          <button id="btnLayout" class="ghost" title="Force-directed layout">Auto layout</button>
+        </div>
+        <details class="mini">
+          <summary>Undo / redo stacks</summary>
+          <div class="stacks">
+            <div><div class="tiny-h">Undo (top first)</div><ol id="undoList" class="stacklist"></ol></div>
+            <div><div class="tiny-h">Redo (top first)</div><ol id="redoList" class="stacklist"></ol></div>
+          </div>
+        </details>
+      </div>
+
+      <div class="card">
+        <h3>Find router <span class="tag">trie</span></h3>
+        <div class="search">
+          <input id="searchInput" placeholder="Type a name, e.g. H..." autocomplete="off">
+          <ul id="searchResults" class="dropdown"></ul>
+        </div>
+      </div>
+
+      <div class="card" id="inspector">
+        <h3>Selection</h3>
+        <div id="inspectorBody" class="muted">Click a router or link.</div>
+      </div>
+
+      <div class="card">
+        <h3>Find a route</h3>
+        <div class="grid2">
+          <label>From<select id="routeSrc" class="nodeSelect"></select></label>
+          <label>To<select id="routeDst" class="nodeSelect"></select></label>
+        </div>
+        <label>Method
+          <select id="routeMode">
+            <option value="cheapest">Cheapest: Dijkstra (heap)</option>
+            <option value="hops">Fewest hops: BFS (queue)</option>
+            <option value="safest">Safest: avoid critical links (0-1 BFS, deque)</option>
+            <option value="bellman">Cheapest: Bellman-Ford</option>
+            <option value="alternatives">3 alternative routes (edge penalty)</option>
+            <option value="compare">Compare Dijkstra / BFS / Bellman-Ford</option>
+          </select>
+        </label>
+        <div class="row gap">
+          <button id="btnRoute" class="primary">Find route</button>
+          <label class="check" title="When a router or link on the shown route fails, find a new route automatically"><input type="checkbox" id="autoReroute" checked> auto-reroute on failure</label>
+        </div>
+        <div id="routeResult" class="result"></div>
+      </div>
+    </div>
+
+    <!-- ============ ALGORITHMS ============ -->
+    <div class="panel" data-panel="algos" hidden>
+      <div class="card">
+        <h3>Algorithm</h3>
+        <select id="algoSelect">
+          <option value="bfs">BFS: fewest hops (queue)</option>
+          <option value="dfs">DFS: depth-first (stack)</option>
+          <option value="dijkstra">Dijkstra: cheapest path (indexed heap)</option>
+          <option value="bellman">Bellman-Ford: cheapest path (rounds)</option>
+          <option value="tarjan">Tarjan: critical routers and links</option>
+          <option value="kruskal">Kruskal MST (merge sort + union-find)</option>
+          <option value="kruskalq">Kruskal MST (quicksort + union-find)</option>
+          <option value="prim">Prim MST (min-heap)</option>
+        </select>
+        <div class="grid2" id="algoEnds">
+          <label>From<select id="algoSrc" class="nodeSelect"></select></label>
+          <label id="algoDstWrap">To<select id="algoDst" class="nodeSelect"></select></label>
+        </div>
+        <button id="btnAlgoRun" class="primary wide">Run and record steps</button>
+        <p id="algoAbout" class="about"></p>
+      </div>
+      <div class="card" id="playerCard" hidden>
+        <div class="player">
+          <button id="pFirst" class="icon" title="First step">|&lt;</button>
+          <button id="pPrev" class="icon" title="Previous step">&lt;</button>
+          <button id="pPlay" class="icon primary" title="Play / pause">&#9654;</button>
+          <button id="pNext" class="icon" title="Next step">&gt;</button>
+          <button id="pLast" class="icon" title="Last step">&gt;|</button>
+          <input type="range" id="pSpeed" min="1" max="20" value="6" title="Speed">
+        </div>
+        <input type="range" id="pScrub" min="0" max="0" value="0" class="scrub">
+        <div class="stepinfo"><span id="pCount">0 / 0</span></div>
+        <div id="pMsg" class="stepmsg"></div>
+      </div>
+      <div class="card" id="dsCard" hidden>
+        <h3 id="dsTitle">Data structure</h3>
+        <div id="dsView" class="dsview"></div>
+      </div>
+      <div class="card" id="algoResultCard" hidden>
+        <h3>Result</h3>
+        <div id="algoResult" class="result"></div>
+      </div>
+    </div>
+
+    <!-- ============ ANALYSIS ============ -->
+    <div class="panel" data-panel="analysis" hidden>
+      <div class="card">
+        <button id="btnAnalyse" class="primary wide">Analyse network</button>
+        <div class="row gap wrap" id="overlayToggles">
+          <label class="check"><input type="checkbox" data-ov="critical" checked> critical</label>
+          <label class="check"><input type="checkbox" data-ov="mst"> MST</label>
+          <label class="check"><input type="checkbox" data-ov="diameter"> diameter</label>
+          <label class="check"><input type="checkbox" data-ov="components"> pieces</label>
+        </div>
+      </div>
+      <div id="analysisBody"></div>
+    </div>
+
+    <!-- ============ SIMULATION ============ -->
+    <div class="panel" data-panel="sim" hidden>
+      <div class="card">
+        <div class="clockrow">
+          <div><div class="tiny-h">Clock</div><div id="simClock" class="clock">0.00</div></div>
+          <div><div class="tiny-h">Events</div><div id="simPending" class="clock small">0</div></div>
+          <div><div class="tiny-h">Queued</div><div id="simQueued" class="clock small">0</div></div>
+          <div><div class="tiny-h">Active</div><div id="simActive" class="clock small">0</div></div>
+        </div>
+        <div class="row gap">
+          <button id="sStep" class="ghost" title="Process the next event">Step</button>
+          <button id="sTick" class="ghost" title="Advance one time unit">+1 time</button>
+          <button id="sPlay" class="primary" title="Run continuously">Play</button>
+          <button id="sFinish" class="ghost" title="Run until no events remain">Finish</button>
+        </div>
+        <div id="timelineBox" class="timeline">
+          <div class="tiny-h">Timeline replay <span id="tlLabel" class="muted"></span></div>
+          <input type="range" id="tlScrub" min="0" max="0" value="0">
+          <button id="tlLive" class="ghost small" hidden>Back to live</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Scenario</h3>
+        <div class="grid2">
+          <label>Transfers<input type="number" id="rTransfers" value="25" min="0" max="2000"></label>
+          <label>Failures<input type="number" id="rFailures" value="6" min="0" max="500"></label>
+          <label>Over time<input type="number" id="rSpan" value="30" min="1"></label>
+          <label>Seed<input type="number" id="rSeed" value="42"></label>
+        </div>
+        <button id="btnRandom" class="primary wide">Add random scenario</button>
+        <details class="mini">
+          <summary>Add one transfer / failure by hand</summary>
+          <div class="grid2">
+            <label>From<select id="tSrc" class="nodeSelect"></select></label>
+            <label>To<select id="tDst" class="nodeSelect"></select></label>
+            <label>Units<input type="number" id="tAmount" value="10" min="1"></label>
+            <label>Priority<input type="number" id="tPrio" value="1" min="1" max="9"></label>
+          </div>
+          <button id="btnTransfer" class="ghost wide">Send transfer now</button>
+          <p class="muted small">To schedule a failure, click a router or link on the map while this tab is open.</p>
+          <div class="grid2">
+            <label>Fail after<input type="number" id="fDelay" value="1" min="0" step="0.5"></label>
+            <label>Down for (0 = forever)<input type="number" id="fDur" value="6" min="0" step="0.5"></label>
+          </div>
+        </details>
+        <details class="mini">
+          <summary>Settings (reset simulation)</summary>
+          <div class="grid2">
+            <label>Routing<select id="cStrategy"><option value="CHEAPEST">Cheapest (Dijkstra)</option><option value="FEWEST_HOPS">Fewest hops (BFS)</option></select></label>
+            <label>Admission<select id="cPriority"><option value="false">FIFO queue</option><option value="true">Priority heap</option></select></label>
+            <label>Max active<input type="number" id="cMaxActive" value="8" min="1" max="50"></label>
+            <label>Max retries<input type="number" id="cRetries" value="4" min="0" max="20"></label>
+            <label>Hop delay<input type="number" id="cHop" value="0.4" min="0.01" step="0.1"></label>
+            <label>Route cache<select id="cCache"><option value="true">LRU on</option><option value="false">off</option></select></label>
+          </div>
+          <button id="btnSimReset" class="ghost wide">Reset simulation</button>
+        </details>
+      </div>
+
+      <div class="card"><h3>Metrics</h3><div id="simMetrics" class="metrics"></div><div id="simChart" class="chart"></div></div>
+      <div class="card"><h3>Transfers</h3><div id="simTransfers" class="tablewrap"></div><div id="transferDetail"></div></div>
+      <div class="card">
+        <h3>Inside the simulator</h3>
+        <div class="tiny-h">Next events (min-heap by time)</div><ol id="simEvents" class="mono-list"></ol>
+        <div class="tiny-h">Admission queue</div><div id="simQueue" class="chips"></div>
+        <div class="tiny-h">Route cache (LRU, most recent first) <span id="cacheStats" class="muted"></span></div><div id="simCache" class="chips"></div>
+      </div>
+      <div class="card"><h3>Event log <span class="tag">doubly linked list</span></h3><ol id="simLog" class="log"></ol></div>
+      <div class="card">
+        <h3>Compare strategies</h3>
+        <p class="muted small">Runs the same random scenario (same seed) under 5 settings, each on a fresh copy of this network.</p>
+        <button id="btnExperiment" class="ghost wide">Run experiment</button>
+        <div id="experimentOut" class="tablewrap"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- full-width pages -->
+  <section id="benchPage" class="page" hidden>
+    <div class="page-head">
+      <div>
+        <h2>Benchmarks</h2>
+        <p class="muted">Measured on this computer: JIT warm-up, then the median of five timed batches. Compare the curve shapes with the predicted complexity.</p>
+      </div>
+      <div class="row gap"><label class="check"><input type="checkbox" id="benchLog"> log scale</label><button id="btnBenchAll" class="primary">Run all</button></div>
+    </div>
+    <div id="benchGrid" class="bench-grid"></div>
+  </section>
+
+  <section id="labPage" class="page" hidden>
+    <div class="page-head">
+      <div>
+        <h2>Data Structure Lab</h2>
+        <p class="muted">Every structure below is NetRescue's own implementation. Run operations and watch the inside change.</p>
+      </div>
+    </div>
+    <div class="lab">
+      <nav id="labNav" class="lab-nav"></nav>
+      <div class="lab-main">
+        <div class="card">
+          <div class="lab-head"><h3 id="labTitle"></h3><span id="labUse" class="muted small"></span></div>
+          <div id="labControls" class="lab-controls"></div>
+          <div id="labMsg" class="labmsg"></div>
+        </div>
+        <div class="card"><div id="labView" class="labview"></div></div>
+        <div class="card"><h3>Complexity</h3><div id="labComplexity" class="tablewrap"></div></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="modal" class="modal" hidden>
+  <div class="modal-box">
+    <h3>Random network (Waxman model)</h3>
+    <p class="muted small">Routers are scattered at random; each pair is linked with probability &beta;&middot;e<sup>-d/(&alpha;L)</sup>, so nearby routers link more often.</p>
+    <div class="grid2">
+      <label>Routers<input type="number" id="gN" value="24" min="3" max="300"></label>
+      <label>Seed<input type="number" id="gSeed" value="7"></label>
+      <label>&alpha; (reach)<input type="number" id="gAlpha" value="0.15" step="0.05" min="0.01"></label>
+      <label>&beta; (density)<input type="number" id="gBeta" value="0.6" step="0.05" min="0.01" max="1"></label>
+    </div>
+    <div class="row gap end"><button id="gCancel" class="ghost">Cancel</button><button id="gOk" class="primary">Generate</button></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="network.js"></script>
+<script src="algos.js"></script>
+<script src="analysis.js"></script>
+<script src="sim.js"></script>
+<script src="bench.js"></script>
+<script src="lab.js"></script>
+</body>
+</html>
